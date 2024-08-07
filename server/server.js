@@ -1,15 +1,17 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import passport from 'passport';
 import session from 'express-session';
 import mongoose from 'mongoose';
-import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import './PassportConfig.js';
+import fs from 'fs';
+import https from 'https';
 import cors from 'cors';
 import userRoutes from './routes/users.js';
-
-dotenv.config();
+import './PassportConfig.js';
 
 const app = express();
 
@@ -18,9 +20,7 @@ mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopol
     .then(() => console.log('MongoDB connected'))
     .catch(err => console.error('MongoDB connection error:', err));
 
-// Use JSON middleware
 app.use(express.json());
-
 app.use(cors({
     origin: 'http://localhost:3000',
     credentials: true
@@ -30,7 +30,7 @@ app.use(session({
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: true,
-    cookie: { secure: false } // Set to true if using HTTPS
+    cookie: { secure: true, sameSite: 'None' }
 }));
 
 app.use(passport.initialize());
@@ -43,6 +43,16 @@ app.get('/auth/google/callback',
     passport.authenticate('google', { failureRedirect: '/' }),
     (req, res) => {
         console.log('Google callback - user authenticated');
+        res.redirect('http://localhost:3000/welcome');
+    });
+
+app.get('/auth/microsoft',
+    passport.authenticate('azuread-openidconnect'));
+
+app.get('/auth/microsoft/callback',
+    passport.authenticate('azuread-openidconnect', { failureRedirect: '/' }),
+    (req, res) => {
+        console.log('Microsoft callback - user authenticated');
         res.redirect('http://localhost:3000/welcome');
     });
 
@@ -63,13 +73,12 @@ app.get('/logout', (req, res, next) => {
         }
         req.session.destroy((err) => {
             if (err) return next(err);
-            res.clearCookie('connect.sid'); // Clear the session cookie
-            res.sendStatus(200); // Send a success response
+            res.clearCookie('connect.sid');
+            res.sendStatus(200);
         });
     });
 });
 
-// Use the user routes
 app.use('/users', userRoutes);
 
 const __filename = fileURLToPath(import.meta.url);
@@ -92,6 +101,15 @@ app.use((err, req, res, next) => {
     res.status(500).send('Internal Server Error');
 });
 
-app.listen(process.env.PORT || 5000, () => {
-    console.log(`Server started on http://localhost:${process.env.PORT || 5000}`);
+const options = {
+    key: fs.readFileSync(path.join(__dirname, 'localhost-key.pem')),
+    cert: fs.readFileSync(path.join(__dirname, 'localhost.pem'))
+};
+
+const server = https.createServer(options, app);
+
+const PORT = process.env.PORT || 5001;
+
+server.listen(PORT, () => {
+    console.log(`Server started on https://localhost:${PORT}`);
 });

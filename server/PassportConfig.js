@@ -1,13 +1,10 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+import { OIDCStrategy } from 'passport-azure-ad';
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import User from './models/User.js'; // Adjust the path as per your project structure
-
-console.log('GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID);
-console.log('GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET);
-console.log('GOOGLE_CALLBACK_URL:', process.env.GOOGLE_CALLBACK_URL);
 
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
@@ -16,11 +13,23 @@ passport.use(new GoogleStrategy({
 },
 (token, tokenSecret, profile, done) => {
     User.findOrCreate({ googleId: profile.id }, (err, user) => {
-        if (err) {
-            console.error('Error finding or creating user:', err);
-            return done(err);
-        }
-        return done(null, user);
+        return done(err, user);
+    });
+}
+));
+
+passport.use(new OIDCStrategy({
+    identityMetadata: `https://login.microsoftonline.com/${process.env.MICROSOFT_TENANT_ID}/v2.0/.well-known/openid-configuration`,
+    clientID: process.env.MICROSOFT_CLIENT_ID,
+    clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
+    redirectUrl: process.env.MICROSOFT_CALLBACK_URL,
+    responseType: 'code',
+    responseMode: 'query',
+    scope: ['profile', 'offline_access', 'user.read']
+},
+(iss, sub, profile, accessToken, refreshToken, done) => {
+    User.findOrCreate({ microsoftId: profile.oid }, (err, user) => {
+        return done(err, user);
     });
 }
 ));
@@ -31,9 +40,6 @@ passport.serializeUser((user, done) => {
 
 passport.deserializeUser((id, done) => {
     User.findById(id, (err, user) => {
-        if (err) {
-            console.error('Error deserializing user:', err);
-        }
         done(err, user);
     });
 });
